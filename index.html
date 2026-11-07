@@ -869,8 +869,10 @@ body:has(#qRun:not([hidden])){background:var(--paper)}
 #qRun .qprompt{font-size:2.7em}
 #qRun .qprompt.vi{font-size:2em;color:var(--fg)}
 #qRun .qprompt.mask{letter-spacing:.06em}
-#qRun .qpic{height:min(13em,36vh);height:min(13em,36dvh);max-width:100%;aspect-ratio:1;margin:0 auto;border-radius:1.4em;border:2px solid var(--line);box-shadow:0 .3em 0 var(--line);background:var(--paper);overflow:hidden;display:grid;place-items:center}
-#qRun .qpic img{width:100%;height:100%;object-fit:contain;display:block}
+/* Ảnh giữ NGUYÊN tỉ lệ gốc (giống Học thẻ): khung bo góc bám sát ảnh, không ép vuông, không viền thừa */
+#qRun .qpic{width:100%;max-width:100%;margin:0 auto;display:flex;justify-content:center;align-items:center}
+#qRun .qpic img{display:block;width:auto;height:auto;max-width:100%;max-height:min(15em,38vh);max-height:min(15em,38dvh);object-fit:contain;border-radius:1.2em;border:2px solid var(--line);box-shadow:0 .3em 0 var(--line);background:var(--grid)}
+@media(min-aspect-ratio:3/2) and (max-height:640px){#qRun .qpic img{max-height:min(15em,56dvh)}}
 #qRun .ipa{font-size:1.1em}
 #qRun .note{font-size:1em}
 #qRun .slowbtn{font-size:.9em;padding:.55em 1.1em;border-radius:1em}
@@ -1428,21 +1430,6 @@ html.sizing{transition:font-size .55s cubic-bezier(.16,1,.3,1)}
 .wmf{isolation:isolate;-webkit-mask-image:-webkit-radial-gradient(white,black)}
 .wm{position:relative}
 @supports not (background:color-mix(in srgb,red,blue)){.wmf{background:repeating-linear-gradient(90deg,rgba(88,167,0,.16) 0 3.2rem,transparent 3.2rem 6.4rem),linear-gradient(180deg,#cdeeb0,#e4f6d2)}}
-</style>
-<style id="fit-patch">
-/* ===== Hiển thị đủ chữ trên mọi thiết bị: không còn "..." hay bị cắt ===== */
-html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
-img,svg,video,canvas{max-width:100%}
-.unit .nm,.gcard span{display:block!important;-webkit-line-clamp:unset!important;line-clamp:unset!important;overflow:visible!important;overflow-wrap:anywhere;hyphens:auto}
-.tag,.brand small{white-space:normal!important;overflow:visible!important;text-overflow:clip!important;overflow-wrap:anywhere;line-height:1.25;border-radius:16px!important}
-.tag{max-width:calc(100% - 7.6rem)!important}
-.brand small{max-width:100%}
-.fcard{padding-top:max(60px,var(--fpt,0px))!important}
-.cfg .tools .tool,.cfg .tools .tool[aria-pressed=true]{display:flex!important;align-items:center;height:auto!important;white-space:normal!important;text-overflow:clip!important;overflow-wrap:anywhere;line-height:1.3!important;padding-top:14px!important;padding-bottom:14px!important}
-.wms{height:auto!important;min-height:3.3rem!important;overflow:visible!important;overflow-wrap:anywhere}
-.wm .qcenter{height:auto!important;min-height:5.6rem!important;overflow:visible!important}
-.opt,.mode,.btn,.chips button,.seg button,.wrow,.meaning{overflow-wrap:anywhere}
-@media (min-width:900px){.fcard{padding-top:max(72px,var(--fpt,0px))!important}}
 </style>
 </head><body class="pickOpen">
 <div class="shell">
@@ -2064,7 +2051,7 @@ function swap(dir,change,kind,from){
    A([{scale:1,filter:"brightness(1)",borderRadius:"26px",offset:0,easing:"cubic-bezier(.3,0,.2,1)"},{scale:1.06,filter:"brightness(1.4)",borderRadius:"26px",offset:.1,easing:"cubic-bezier(.6,0,.9,.4)"},{scale:.07,filter:"brightness(1.6)",borderRadius:"50%",offset:.27},{scale:.07,filter:"brightness(1.6)",borderRadius:"50%",offset:1}],{duration:dur,easing:"linear"});
    A([{rotate:`${S0.rot}deg`,offset:0},{rotate:`${S0.rot+dir*200}deg`,offset:.27},{rotate:`${S0.rot+dir*200}deg`,offset:1}],{duration:dur,easing:"ease-in"});
    A([{opacity:1,offset:0},{opacity:1,offset:.2},{opacity:0,offset:.3},{opacity:0,offset:1}],{duration:dur,easing:"linear"});
-   try{duoOrb(gx,gy,dur*.24,dur*.66,pct,g)}catch(_){}
+   try{duoOrb(gx,gy,dur*.24,dur*.66,pct)}catch(_){}
  }else{
   /* CHƯA THUỘC / CHUYỂN THẺ: thẻ cũ luôn nằm TRÊN chồng bài, nghiêng 3D và trượt hẳn ra ngoài rồi mới mờ đi */
   dur=kind==="prev"?580:from?640:720;
@@ -3348,31 +3335,27 @@ function ring(x,y,d){var r=mk("duo-ring","left:"+x+"px;top:"+y+"px");r.animate([
 function trail(x,y){var z=8+Math.random()*9,t=mk("duo-trail","left:"+(x-z/2+(Math.random()-.5)*10)+"px;top:"+(y-z/2+(Math.random()-.5)*10)+"px;width:"+z+"px;height:"+z+"px");
 t.animate([{opacity:.9,transform:"scale(1)"},{opacity:0,transform:"translateY(12px) scale(.2)"}],{duration:420,easing:"ease-out",fill:"forwards"}).onfinish=function(){t.remove()}}
 /* thẻ đã thuộc -> bóng năng lượng bay vào thanh tiến độ */
-window.duoOrb=function(x0,y0,delay,flight,pct,src){var bar=document.getElementById("lBar");if(!bar||RM)return;
-var track=bar.parentElement;if(!track||!track.getBoundingClientRect().width)return;
-var SX=function(){return window.pageXOffset||document.documentElement.scrollLeft||0},SY=function(){return window.pageYOffset||document.documentElement.scrollTop||0};
-var sx=SX(),sy=SY(),o=mk("duo-orb"),b=document.createElement("b");b.innerHTML="<i></i>";o.appendChild(b);
-var dead=0,kill=function(){dead=1;try{o.remove()}catch(_){}};setTimeout(kill,delay+flight+3000);
-/* đích luôn đọc lại từ vị trí THẬT của thanh mỗi khung hình => cuộn trang giữa chừng bóng vẫn bay trúng */
-var tgt=function(){var r=track.getBoundingClientRect(),W=window.innerWidth||document.documentElement.clientWidth,H=window.innerHeight||document.documentElement.clientHeight,tx=r.left+r.width*pct,ty=r.top+r.height/2;return{w:r.width,x:Math.max(14,Math.min(W-14,tx)),y:Math.max(14,Math.min(H-14,ty))}};
-setTimeout(function(){if(dead)return;
-var X0=x0-(SX()-sx),Y0=y0-(SY()-sy);
-if(src&&src.isConnected){var q=src.getBoundingClientRect();if(q.width||q.height){X0=q.left+q.width/2;Y0=q.top+q.height/2}}
-var T0=tgt();if(!T0.w){kill();return}
-var px=SX(),py=SY(),P0x=X0+px,P0y=Y0+py,Cx=(X0+T0.x)/2+px+(Math.random()-.5)*180,Cy=Math.min(Y0,T0.y)+py-110-Math.random()*60;
-o.style.opacity=1;ring(X0,Y0,520);var s=performance.now(),last=0;
-(function f(now){if(dead)return;
-var k=Math.min(1,(now-s)/flight),e=k<.5?4*k*k*k:1-Math.pow(-2*k+2,3)/2,m=1-e,T=tgt();if(!T.w){kill();return}
-var ox=SX(),oy=SY(),x=m*m*(P0x-ox)+2*m*e*(Cx-ox)+e*e*T.x,y=m*m*(P0y-oy)+2*m*e*(Cy-oy)+e*e*T.y,z=k<.18?.2+1.1*(k/.18):1.3-.5*((k-.18)/.82);
-o.style.transform="translate("+(x-22)+"px,"+(y-22)+"px)";b.style.transform="scale("+z+")";
+window.duoOrb=function(x0,y0,delay,flight,pct){var bar=document.getElementById("lBar");if(!bar||RM)return;
+var tk=bar.parentElement,tr0=tk.getBoundingClientRect();if(!tr0.width)return;
+/* Điểm xuất phát lưu theo toạ độ TRANG (không phải màn hình) và đích được đo lại ở MỖI khung hình,
+   nên cuộn trang / xoay máy / đổi cỡ cửa sổ giữa chừng thì bóng vẫn bay đúng vào thanh. */
+var px=function(){return window.pageXOffset||document.documentElement.scrollLeft||0},py=function(){return window.pageYOffset||document.documentElement.scrollTop||0};
+var sx=x0+px(),sy=y0+py(),jx=(Math.random()-.5)*180,jy=110+Math.random()*60,lx=tr0.left+tr0.width*pct,ly=tr0.top+tr0.height/2;
+var o=mk("duo-orb"),b=document.createElement("b");b.innerHTML="<i></i>";o.appendChild(b);
+var vw=function(){return document.documentElement.clientWidth||innerWidth},vh=function(){return window.innerHeight||document.documentElement.clientHeight};
+setTimeout(function(){o.style.opacity=1;ring(sx-px(),sy-py(),520);var s=performance.now(),last=0;
+(function f(now){var r=tk.getBoundingClientRect();if(r.width){lx=r.left+r.width*pct;ly=r.top+r.height/2}
+var x1=Math.max(14,Math.min(vw()-14,lx)),y1=Math.max(14,Math.min(vh()-14,ly)),x0=sx-px(),y0=sy-py(),cx=(x0+x1)/2+jx,cy=Math.min(y0,y1)-jy;
+var k=Math.min(1,(now-s)/flight),e=k<.5?4*k*k*k:1-Math.pow(-2*k+2,3)/2,m=1-e,
+x=m*m*x0+2*m*e*cx+e*e*x1,y=m*m*y0+2*m*e*cy+e*e*y1,sc=k<.18?.2+1.1*(k/.18):1.3-.5*((k-.18)/.82);
+o.style.transform="translate("+(x-22)+"px,"+(y-22)+"px)";b.style.transform="scale("+sc+")";
 if(now-last>22){last=now;trail(x,y)}
 if(k<1){requestAnimationFrame(f);return}
-var x1=T.x,y1=T.y;
 /* hấp thụ: bóng nổ sáng, thanh phát sáng + nảy, vòng sóng lan ra */
 b.animate([{transform:"scale(.8)",opacity:1},{transform:"scale(2.1)",opacity:1,offset:.4},{transform:"scale(.2)",opacity:0}],{duration:280,easing:"ease-out",fill:"forwards"});
-setTimeout(kill,320);ring(x1,y1,620);
+setTimeout(function(){o.remove()},320);ring(x1,y1,620);
 var g="color-mix(in srgb,var(--brand-accent) 60%,transparent)";
-track.animate([{boxShadow:"0 0 0 0 "+g},{boxShadow:"0 0 26px 8px "+g,offset:.3},{boxShadow:"0 0 0 0 "+g}],{duration:680});
+bar.parentElement.animate([{boxShadow:"0 0 0 0 "+g},{boxShadow:"0 0 26px 8px "+g,offset:.3},{boxShadow:"0 0 0 0 "+g}],{duration:680});
 bar.animate([{filter:"brightness(2)"},{filter:"brightness(1)"}],{duration:560});
 try{sp(bar,[{scale:"1 2.1"},{scale:"1 1"}],SP.bounce,{fill:"none"});burst("ok",x1,y1,14)}catch(_){}
 })(s)},delay)};
@@ -3447,18 +3430,6 @@ var r="color-mix(in srgb,var(--red) 55%,transparent)";tk.animate([{boxShadow:"0 
  }
  document.addEventListener("click",e=>{if(e.target.closest("#tPublish,#vhFab"))publish()});
 })();
-</script>
-<script id="fit-js">
-/* Tự thu nhỏ chữ vừa khung (từ dài / màn nhỏ) trước khi phải cắt hay ngắt giữa từ */
-(function(){var SEL=".fcard .w,.fcard .vi,.qprompt,.wms",pend=0;
-function fit(el){if(!el.isConnected)return;var sig=el.textContent+"|"+el.clientWidth+"|"+innerWidth;if(el.dataset.fit===sig)return;
-el.style.fontSize="";el.style.overflowWrap="";var fs=parseFloat(getComputedStyle(el).fontSize)||16,min=Math.max(12,fs*.5),n=0;
-while(n++<40&&fs>min&&el.scrollWidth>el.clientWidth+1){fs-=Math.max(1,fs*.05);el.style.fontSize=fs+"px"}
-if(el.scrollWidth>el.clientWidth+1)el.style.overflowWrap="anywhere";el.dataset.fit=el.textContent+"|"+el.clientWidth+"|"+innerWidth}
-function run(){if(pend)return;pend=1;setTimeout(function(){pend=0;requestAnimationFrame(function(){document.querySelectorAll(SEL).forEach(fit)})},140)}
-function boot(){var root=document.body;if(!root)return;new MutationObserver(run).observe(root,{childList:true,characterData:true,subtree:true});run()}
-addEventListener("resize",run);addEventListener("orientationchange",run);
-if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",boot);else boot()})();
 </script>
 </body>
 </html>
