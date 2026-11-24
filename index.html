@@ -5338,7 +5338,7 @@ async function complete(prompt,opts={}){
  const signal=opts.signal||null;
  const messages=[{role:"system",content:"Bạn là giáo viên tiếng Anh THCS Việt Nam. Chỉ trả lời đúng định dạng mà người dùng yêu cầu, không thêm markdown khi yêu cầu JSON. Tạo câu tiếng Anh tự nhiên, ngữ pháp chính xác, phù hợp lứa tuổi. Nếu được yêu cầu dùng từ vựng thì giữ nguyên cách viết từ/cụm từ; không tự ý sửa danh sách từ vựng của ứng dụng."},{role:"user",content:String(prompt)}];
  let lastErr=null;
- for(let attemptNum=0;attemptNum<Math.min(PROVIDERS.length,4);attemptNum++){
+ for(let attemptNum=0;attemptNum<PROVIDERS.length;attemptNum++){
   if(signal&&signal.aborted)throw new Error("Đã hủy tạo câu");
   const i=(cur+attemptNum)%PROVIDERS.length,pv=PROVIDERS[i];
   let ctrl=null,timer=null,abort=null;
