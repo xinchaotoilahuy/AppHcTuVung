@@ -1859,7 +1859,7 @@ body:has(#panel-home:not([hidden])) .units{opacity:.92}@media(min-width:1180px){
 <div class="qfoot"><div class="fb" id="qFb" role="status" aria-live="polite" hidden></div><button class="btn primary" data-sfx="none" id="qNext" hidden>Câu tiếp</button></div></div>
 <div class="box" id="qResult" hidden><div class="score" id="rScore"></div><div class="verdict" id="rVerdict"></div><p class="note" id="rText"></p>
 <div id="rWrongWrap"><div class="wlist" id="rWrong"></div></div>
-<div class="row" style="justify-content:flex-start"><button class="btn primary" data-sfx="none" id="rRetry">Làm lại các câu sai</button><button class="btn" data-sfx="none" id="aiWrongBtn" hidden>AI giúp nhớ từ sai</button><button class="btn" data-sfx="tab" id="rNew">Làm bài mới</button></div></div>
+<div class="row" style="justify-content:flex-start"><button type="button" class="btn primary vh-ai-regenerate" data-sfx="none" id="rAiRegenerate" hidden>Tạo lại quiz AI</button><button class="btn primary" data-sfx="none" id="rRetry">Làm lại các câu sai</button><button class="btn" data-sfx="none" id="aiWrongBtn" hidden>AI giúp nhớ từ sai</button><button class="btn" data-sfx="tab" id="rNew">Làm bài mới</button></div></div>
 </section>
 
 <section role="tabpanel" id="panel-game" hidden>
@@ -3178,6 +3178,7 @@ function drawAssignedQuiz(session){
 function showAssignedQuizResult(session){
  $("qRun").hidden=true;
  const result=$("qResult");
+ $("rAiRegenerate").hidden=true;
  result.hidden=false;
  result.setAttribute("data-assigned","");
  let body=result.querySelector(".vh-assigned-result");
@@ -3305,8 +3306,10 @@ function buildQuiz(words,retry=false){const u=unit(),pool=u.words,ambiguous=asse
  })}
 function startQuiz(words,retry=false){
  if(!words.length){$("qMsg").textContent="Không có từ nào để kiểm tra. Hãy bỏ bớt bộ lọc (chưa thuộc / yêu thích) hoặc chọn Unit khác.";return}
+ startQuizRun(buildQuiz(words,retry))}
+function startQuizRun(questions){
  assignmentRouteVersion++;
- SFX.quizStart();qs=buildQuiz(words,retry);qi=0;qRight=0;qWrong=[];$("qSetup").hidden=true;$("qResult").hidden=true;$("qRun").hidden=false;enter($("qRun"));showQ()}
+ SFX.quizStart();qs=questions;qi=0;qRight=0;qWrong=[];$("qSetup").hidden=true;$("qResult").hidden=true;$("qRun").hidden=false;enter($("qRun"));showQ()}
 $("qStart").onclick=()=>{const u=unit();let ws=uniqueWords(u.words);if($("qWeak").checked)ws=ws.filter(w=>!isKnown(u,w));if($("qFav").checked)ws=ws.filter(w=>VH.isFav(u,w));startQuiz(ws)};
 const TL={listen:"Nghe và chọn từ đúng",en2vi:"Chọn nghĩa đúng của từ",vi2en:"Chọn từ tiếng Anh đúng",spell:"Nghe và viết lại từ"};
 function showQ(){
@@ -3336,6 +3339,7 @@ function feedback(ok,extra,el){
  const chosen=q.selected,wordClass=posLabel(q.w.pos);
  const contrast=!ok&&chosen&&chosen!==q.w?`<div>Nghĩa của từ em chọn trong Unit: <b>${esc(chosen.en)}</b> · ${esc(chosen.vi)}</div>`:'';
  $("qFb").hidden=false;$("qFb").innerHTML=`<div class="res ${ok?"ok":"bad"}">${ok?"Chính xác!":"Chưa đúng"+(extra||"")}</div><div><b>${esc(q.w.en)}</b> <span class="ipa">${esc(q.w.ipa||"")}</span> · ${esc(q.w.vi)}${wordClass?` <small>(${esc(wordClass)})</small>`:''}</div>${contrast}${ok?'':'<div class="note">Cuối bài, em có thể luyện lại từ này bằng câu hỏi khác.</div>'}`;
+ if(q.type==='aiword'){const detail=document.createElement('p');detail.textContent='Đáp án: '+q.choices[q.answer]+'. '+q.explanation;$("qFb").append(detail)}
  sp($("qFb"),[{translate:"0 22px",scale:.94},{translate:"0 0",scale:1}],SP.pop,{delay:100});an($("qFb"),[{opacity:0},{opacity:1}],{duration:220,delay:100,easing:OUT});
  try{
  if(ok)sp($("qScoreLive"),[{scale:1.4},{scale:1}],SP.bounce,{fill:"none"});
@@ -3345,9 +3349,12 @@ function feedback(ok,extra,el){
  an($("qNext"),[{opacity:0},{opacity:1}],{duration:200,delay:200,easing:OUT});sp($("qNext"),[{scale:.6,translate:"0 10px"},{scale:1,translate:"0 0"}],SP.bounce,{delay:200});
  if(q.type!=="listen"&&q.type!=="spell")speak(q.w.en);$("qNext").focus({preventScroll:true});
 }
-function choose(i){if(answered)return;const q=qs[qi];if(!Number.isInteger(i)||i<0||i>=q.opts.length)return;const ok=q.opts[i]===q.w;let t;q.selected=q.opts[i];
- $("qAnswer").querySelectorAll(".opt").forEach((b,j)=>{b.disabled=true;if(q.opts[j]===q.w){b.classList.add("right");if(ok)t=b}else if(j===i){b.classList.add("wrong");t=b}});
- if(!ok)setTimeout(()=>sp($("qAnswer").querySelector(".right"),[{scale:1.08},{scale:1}],SP.bounce,{fill:"none"}),350);
+function choose(i){if(answered)return;const q=qs[qi];const ai=q.type==='aiword',options=ai?q.choices:q.opts;
+ if(!Number.isInteger(i)||i<0||i>=options.length)return;
+ const correct=ai?q.answer:options.indexOf(q.w),ok=i===correct;let t;
+ if(ai)q.missed=!ok;else q.selected=options[i];
+ $("qAnswer").querySelectorAll(".opt").forEach((b,j)=>{b.disabled=true;if(j===correct){b.classList.add("right");if(ok)t=b}else if(j===i){b.classList.add("wrong");t=b}});
+ if(!ok)setTimeout(()=>{if(qs[qi]!==q||!$("qAnswer").querySelector(".right"))return;sp($("qAnswer").querySelector(".right"),[{scale:1.08},{scale:1}],SP.bounce,{fill:"none"})},350);
  feedback(ok,"",t)}
 /* chấm chính tả: giữ khoảng trắng và dấu nháy, chấp nhận khác biệt chữ hoa và kiểu dấu nháy. */
 const spN=t=>String(t).normalize('NFKC').toLocaleLowerCase().replace(/[‘’]/g,"'").replace(/[–—]/g,'-').replace(/\s+/g,' ').trim();
@@ -3374,6 +3381,7 @@ function resultFx(s10){
 }
 const fmt=n=>`${(Math.round(n*10)/10).toLocaleString("vi-VN",{minimumFractionDigits:1})}<small> / 10 điểm</small>`;
 function result(){
+ $("rAiRegenerate").hidden=qs[0]?.type!=="aiword"||!!assignedQuiz;
  const finalScore=qs.length?Math.round(qRight/qs.length*100)/10:0;SFX.finish(finalScore);
  $("qRun").hidden=true;$("qResult").hidden=false;enter($("qResult"));
  const total=qs.length,s10=total?Math.round(qRight/total*100)/10:0;countUp($("rScore"),s10,1300);
@@ -3390,7 +3398,7 @@ function startFocusedQuiz(words,limit){
  const pool=uniqueWords(words||[]).slice(0,Math.max(1,Number(limit)||10));if(!pool.length){toast('Unit chưa có từ để luyện.');return}
  const priorMode=qMode,priorCount=qN;try{qMode='en2vi';qN=pool.length;showTab('quiz');startQuiz(pool)}finally{qMode=priorMode;qN=priorCount}
 }
-$("rRetry").onclick=()=>{const missed=[...new Set(qWrong)];startQuiz(missed.map(w=>qs.find(q=>q.w===w)||{w,type:"match"}),true)};$("rNew").onclick=quizSetupView;
+$("rRetry").onclick=()=>{if(qs[0]?.type==='aiword'){startQuizRun(qs.filter(q=>q.missed).map(q=>({...q,missed:false})));return}const missed=[...new Set(qWrong)];startQuiz(missed.map(w=>qs.find(q=>q.w===w)||{w,type:"match"}),true)};$("rNew").onclick=quizSetupView;
 
 /* ---------- list ---------- */
 let readTimer=null,reading=false;
@@ -4326,13 +4334,26 @@ $("gQuit").onclick=()=>{if(G?.assignment){const session=G.assignment;gMenu();ses
 document.addEventListener("keydown",e=>{if(settings.tab!=="game"||!G||G.over||e.target.closest("input,textarea,select,button,a,[contenteditable],[role=button]")||!/^[1-4]$/.test(e.key))return;const b=document.querySelectorAll("#gQ .opt")[+e.key-1];if(b&&!b.disabled)b.click()});
 document.addEventListener("keydown",e=>{if(settings.tab!=="game"||!G||G.over||G.id!=="hangman"||!G.hg||e.ctrlKey||e.metaKey||e.altKey||e.target.closest("input,textarea,select,button,a,[contenteditable],[role=button]"))return;if(/^[a-z]$/i.test(e.key)){e.preventDefault();G.hg(e.key)}});
 /* ---------- Quiz Mode: thêm 4 dạng câu hỏi mới ---------- */
-window.OPTQ=t=>t==="listen"||t==="en2vi"||t==="vi2en"||t==="listen2vi"||t==="img";
+window.OPTQ=t=>t==="aiword"||t==="listen"||t==="en2vi"||t==="vi2en"||t==="listen2vi"||t==="img";
 Object.assign(TL,{fill:"Điền chữ cái còn thiếu",scramble:"Sắp xếp chữ cái thành từ",match:"Nối từ với nghĩa",listen2vi:"Nghe và chọn nghĩa đúng",img:"Nhìn ảnh, chọn từ đúng"});
 function typeIn(a,ph){a.innerHTML=`<form class="typein" id="spForm" autocomplete="off"><input id="spIn" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" lang="en" placeholder="${ph}" aria-label="Câu trả lời"><button class="btn primary" data-sfx="none" type="button" id="spBtn">Kiểm tra</button></form>`;
  const go=()=>{try{if(answered){next();return}checkSpell()}catch(err){toast("Lỗi: "+(err&&err.message||err))}};$("spForm").onsubmit=e=>e.preventDefault();$("spBtn").addEventListener("click",e=>{e.preventDefault();go()});
  $("spIn").addEventListener("keydown",e=>{if(e.key==="Enter"){if(e.isComposing||e.keyCode===229)return;e.preventDefault();go()}});setTimeout(()=>$("spIn").focus(),50)}
 TL.context='Hoàn thành ngữ cảnh';
+TL.aiword='Quiz AI · Luyện dùng từ';
 const NQ={
+aiword(q,c,a){
+ const raw=String(q.prompt||'').trim();
+ // Chỉ tách câu dẫn khi có dấu phân cách rõ ràng; giữ nguyên nội dung AI.
+ const match=raw.match(/^((?:Choose|Select|Pick|Complete|Fill in|Which|Chọn|Điền|Hoàn thành)[^:\n]{0,125}:)\s+([\s\S]+)$/i);
+ const instruction=match?match[1]:'Chọn một đáp án đúng';
+ const question=match?match[2]:raw;
+ c.innerHTML=`<div class="vh-ai-question"><div class="vh-ai-question-head"><div class="vh-ai-instruction">${esc(instruction)}</div><button type="button" class="tool vh-ai-regenerate" id="qAiRegenerate" data-sfx="none" title="Tạo bộ 3 câu hỏi mới bằng AI"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M5 9a8 8 0 0 1 13-4l2 3M19 15a8 8 0 0 1-13 4l-2-3"/></svg><span>Tạo lại</span></button></div><div class="vh-ai-prompt" dir="auto">${esc(question)}</div></div>`;
+ renderAssignedChoices(a,q,choose);
+ window.VHAI?.syncWordQuizRegen?.();
+ c.closest('.qbody').scrollTop=0;
+ stagger(c.children,0,60,420,{y:8,tilt:0,blur:0});
+},
 context(q,c,a){c.innerHTML='<div class="qprompt vi">'+esc(Study.context(q.w))+'</div><p class="note">'+esc(q.w.vi)+'</p>';typeIn(a,'Nhập từ hoặc cả cụm từ tiếng Anh');stagger(c.children,0,90,560)},
 img(q,c,a){c.innerHTML=`<div class="qpic"><img src="${esc(vhImageSrc(q.w.image))}" alt="Hình minh hoạ cần đoán từ" draggable="false"></div>`;stagger(c.children,0,90,560);
  a.innerHTML=`<div class="opts">${q.opts.map((o,i)=>`<button class="opt" data-sfx="none" data-i="${i}"><b>${i+1}</b><span>${esc(o.en)}</span></button>`).join("")}</div>`;a.querySelectorAll(".opt").forEach(b=>b.onclick=()=>choose(+b.dataset.i));stagger(a.querySelectorAll(".opt"),180,80)},
@@ -5371,15 +5392,14 @@ $("aiNew").onclick=reset;
 /* ===== AI ở mọi nơi: Học thẻ, Quiz, Danh sách ===== */
 const SYSW="Bạn là trợ lý học tiếng Anh cho học sinh THCS Việt Nam (chương trình Tiếng Anh Global Success). Không sử dụng emoji. Trả lời tiếng Việt chính xác, ngắn gọn, dễ hiểu; câu tiếng Anh phải kèm nghĩa tiếng Việt. Xét ngữ cảnh và từ loại đã cho trước khi giải thích. Không bịa nghĩa, IPA, cụm từ, họ từ hoặc từ trái nghĩa: nếu không có loại tương ứng, nói rõ. Ví dụ tiếng Anh phải tự nhiên, đúng ngữ pháp, phù hợp THCS. Chỉ đưa thông tin liên quan, sử dụng gạch đầu dòng thay vì bảng. Tuyệt đối không viết lại hay tự thêm từ vào kho từ vựng.";
 const wi=w=>w.en+(w.pos?" ("+w.pos+")":"")+(w.ipa?" "+w.ipa:"")+" = "+w.vi;
-const KINDS=[["exp","Tổng quan"],["ex","Câu ví dụ"],["syn","Đồng / trái nghĩa"],["fam","Họ từ"],["col","Cụm từ hay gặp"],["tip","Mẹo nhớ"],["ex2","Bài tập nhỏ"]];
+const KINDS=[["exp","Tổng quan"],["ex","Câu ví dụ"],["syn","Đồng / trái nghĩa"],["fam","Họ từ"],["col","Cụm từ hay gặp"],["tip","Mẹo nhớ"],["ex2","Quiz với AI"]];
 const PR={
  exp:w=>"Giải thích từ: "+wi(w)+".\nGồm: nghĩa và loại từ, cách dùng ngắn gọn, 2 câu ví dụ (kèm dịch), 1 mẹo nhớ.",
  ex:w=>"Đặt 4 câu tiếng Anh đơn giản (phù hợp chương trình đang học) có dùng từ \""+w.en+"\" ("+wi(w)+"), mỗi câu một ngữ cảnh khác nhau. Mỗi câu kèm bản dịch tiếng Việt và in đậm từ \""+w.en+"\" trong câu.",
  syn:w=>"Liệt kê các từ đồng nghĩa (3-4 từ) và trái nghĩa (2-3 từ, nếu có) của từ: "+wi(w)+". Mỗi từ kèm nghĩa tiếng Việt và ghi chú ngắn về khác biệt sắc thái hoặc độ trang trọng nếu có. Nếu không có từ trái nghĩa thì nói rõ.",
  fam:w=>"Họ từ (word family) của từ: "+wi(w)+". Nêu các dạng danh từ / động từ / tính từ / trạng từ liên quan; mỗi dạng kèm loại từ, nghĩa và 1 ví dụ ngắn có dịch.",
  col:w=>"Nêu 5 cụm từ / collocation thường đi với từ: "+wi(w)+". Mỗi cụm kèm nghĩa và 1 câu ví dụ ngắn có dịch.",
- tip:w=>"Cho mình 2 mẹo ghi nhớ từ: "+wi(w)+" (liên tưởng âm thanh với tiếng Việt, hình ảnh, hoặc gốc từ nếu có). Ngắn, vui, dễ nhớ.",
- ex2:w=>"Ra 3 câu điền từ vào chỗ trống (fill-in-the-blank) để luyện từ: "+wi(w)+", phù hợp chương trình đang học. Ghi đáp án ở cuối, tách riêng."
+ tip:w=>"Cho mình 2 mẹo ghi nhớ từ: "+wi(w)+" (liên tưởng âm thanh với tiếng Việt, hình ảnh, hoặc gốc từ nếu có). Ngắn, vui, dễ nhớ."
 };
 const CK="vhai:cache:v3";let cache={};try{cache=JSON.parse(localStorage.getItem(CK)||"{}")||{}}catch(e){}
 const cset=(k,v)=>{cache[k]=v;const ks=Object.keys(cache);if(ks.length>150)delete cache[ks[0]];try{localStorage.setItem(CK,JSON.stringify(cache))}catch(e){}};
@@ -5407,9 +5427,87 @@ async function gen(out,prompt,key,force){
 }
 function wire(out){out.addEventListener("click",e=>{if(e.target.closest(".ai-regen")&&out._job)gen(out,out._job.prompt,out._job.key,true)})}
 function clearOut(out,chips){out._tok=null;out.hidden=true;out.innerHTML="";chips.querySelectorAll("button").forEach(x=>x.setAttribute("aria-pressed","false"))}
+function readWordQuiz(raw,w){
+ const start=raw.indexOf('['),end=raw.lastIndexOf(']');
+ if(start<0||end<=start)throw Error();
+ const rows=JSON.parse(raw.slice(start,end+1));
+ const text=(value,max)=>typeof value==='string'&&value.trim().length>0&&value.length<=max;
+ if(!Array.isArray(rows)||rows.length!==3)throw Error();
+ const prompts=new Set();
+ return rows.map(row=>{
+  if(!row||!text(row.prompt,400)||!text(row.explanation,400)||!Array.isArray(row.choices)||row.choices.length!==4||!row.choices.every(c=>text(c,180))||!Number.isInteger(row.answer)||row.answer<0||row.answer>3)throw Error();
+  const choices=row.choices.map(c=>c.trim()),prompt=row.prompt.trim(),id=assessmentText(prompt);
+  if(prompts.has(id)||new Set(choices.map(assessmentText)).size!==4)throw Error();
+  prompts.add(id);
+  const order=shuffle([0,1,2,3]);
+  return {type:'aiword',w,prompt,choices:order.map(i=>choices[i]),answer:order.indexOf(row.answer),explanation:row.explanation.trim()};
+ })
+}
+const wordQuizKey=w=>JSON.stringify(['word-quiz-v1',PROG.id,unit().id,w.en,w.vi,w.pos]);
+const wordQuizPrompt=w=>'Tạo đúng 3 câu trắc nghiệm luyện từ '+JSON.stringify(wi(w))+' trong '+PROG.name+'. Đa dạng: chọn nghĩa trong ngữ cảnh, chọn câu dùng đúng, chọn cụm từ phù hợp. Mỗi câu chỉ có một đáp án đúng. Không để lộ đáp án trong câu hỏi, không ghi A/B/C/D trước lựa chọn. Trả về duy nhất mảng JSON gồm 3 đối tượng {prompt,choices,answer,explanation}. prompt là câu hỏi, choices gồm 4 chuỗi khác nhau, answer là chỉ số từ 0 đến 3, explanation là một câu giải thích tiếng Việt.';
+let wordRegenJob=null;
+function syncWordQuizRegen(){
+ const busy=!!wordRegenJob;
+ const running=$('qAiRegenerate'),finished=$('rAiRegenerate');
+ if(running){running.disabled=busy;running.setAttribute('aria-busy',String(busy));running.querySelector('span').textContent=busy?'Đang tạo…':'Tạo lại'}
+ if(finished){finished.disabled=busy;finished.setAttribute('aria-busy',String(busy));finished.textContent=busy?'Đang tạo…':'Tạo lại quiz AI'}
+}
+async function regenerateWordQuiz(){
+ if(wordRegenJob||assignedQuiz||settings.tab!=='quiz'||_nxB||qs[0]?.type!=='aiword'||($('qRun').hidden&&$('qResult').hidden))return;
+ if(!$('qRun').hidden&&(qi>0||answered)&&!window.confirm('Tạo bộ 3 câu mới? Lượt quiz hiện tại sẽ được thay thế khi AI tạo thành công.'))return;
+ const previous=qs,w=qs[0].w,route=assignmentRouteVersion,program=PROG.id,sourceUnit=unit().id,key=wordQuizKey(w);
+ const controller=new AbortController(),job={controller};wordRegenJob=job;syncWordQuizRegen();
+ const current=()=>wordRegenJob===job&&settings.tab==='quiz'&&!assignedQuiz&&assignmentRouteVersion===route&&qs===previous&&PROG.id===program&&unit().id===sourceUnit&&(!$('qRun').hidden||!$('qResult').hidden);
+ const watch=setInterval(()=>{if(!current())controller.abort()},150);
+ try{
+  const oldPrompts=new Map(previous.map(q=>[assessmentText(q.prompt),q.prompt]));
+  if(cache[key]){try{readWordQuiz(cache[key],w).forEach(q=>oldPrompts.set(assessmentText(q.prompt),q.prompt))}catch{}}
+  const prompt=wordQuizPrompt(w)+'\nĐây là lượt tạo lại. Tạo cả 3 câu hỏi mới, thay đổi tình huống, câu ví dụ và các phương án nhiễu. Không lặp lại các câu hỏi sau: '+JSON.stringify([...oldPrompts.values()]);
+  let fresh=null,raw='';
+  for(let i=0;i<2;i++){
+   if(!current())return;
+   raw=await window.VHAI.complete(prompt+(i?'\nLần trước trùng câu hoặc sai định dạng. Hãy tạo 3 câu thực sự khác.':''),{maxTokens:1800,signal:controller.signal});
+   if(!current())return;
+   try{const candidate=readWordQuiz(raw,w);if(candidate.every(q=>!oldPrompts.has(assessmentText(q.prompt)))){fresh=candidate;break}}catch{}
+  }
+  if(!fresh)throw new Error('AI chưa tạo được bộ câu hỏi khác hợp lệ');
+  if(!current()||_nxB)return;
+  cset(key,raw);startQuizRun(fresh);toast('Đã tạo 3 câu quiz AI mới!');
+ }catch(e){if(current()&&!controller.signal.aborted)toast('Chưa tạo được quiz mới. Bài hiện tại vẫn được giữ; hãy thử lại.');}
+ finally{clearInterval(watch);if(wordRegenJob===job){wordRegenJob=null;syncWordQuizRegen()}}
+}
+document.addEventListener('click',e=>{if(e.target.closest('#qAiRegenerate,#rAiRegenerate'))regenerateWordQuiz()});
+async function wordQuiz(out,w){
+ const key=wordQuizKey(w),tok={};
+ const origin=settings.tab,sourceUnit=unit().id;
+ out._tok=tok;out._job=null;out.hidden=false;out.className='ai-out';
+ out.textContent='Đang tạo 3 câu quiz…';window.vhRevealResult(out);
+ const current=()=>out._tok===tok&&settings.tab===origin&&unit().id===sourceUnit;
+ try{
+  let questions;
+  if(cache[key]){try{questions=readWordQuiz(cache[key],w)}catch{delete cache[key]}}
+  if(!questions){
+   const prompt=wordQuizPrompt(w);
+   const raw=await window.VHAI.complete(prompt,{maxTokens:1800});
+   if(!current())return;
+   questions=readWordQuiz(raw,w);cset(key,raw);
+  }
+  const launch=()=>{if(!current())return;if(!sh.hidden)closeSheet();clearAssignedQuiz();showTab('quiz');startQuizRun(questions)};
+  out.textContent='3 câu quiz đã sẵn sàng.';
+  const button=document.createElement('button');button.type='button';button.className='btn small primary';
+  button.textContent=origin==='quiz'&&!$('qRun').hidden?'Kết thúc lượt hiện tại và mở Quiz AI':'Làm quiz';button.onclick=launch;out.append(' ',button);
+  if(origin!=='quiz')launch();
+ }catch{
+  if(!current())return;
+  out.textContent='AI chưa cung cấp đủ câu hỏi. Em có thể luyện ngay bằng học liệu của Unit. ';
+  const practice=document.createElement('button');practice.type='button';practice.className='btn small primary';practice.textContent='Luyện bằng Quiz của Unit';
+  practice.onclick=()=>{if(!current())return;if(!sh.hidden)closeSheet();clearAssignedQuiz();startFocusedQuiz([w,...shuffle(unit().words)],3)};
+  const retry=document.createElement('button');retry.type='button';retry.className='tool';retry.textContent='Tạo lại bằng AI';retry.onclick=()=>{delete cache[key];wordQuiz(out,w)};out.append(practice,' ',retry)
+ }
+}
 function mount(chipsEl,outEl,get){
  KINDS.forEach(k=>{const b=document.createElement("button");b.type="button";b.className="tool";b.dataset.sfx="tap";b.dataset.k=k[0];b.textContent=k[1];b.setAttribute("aria-pressed","false");
-  b.onclick=()=>{const w=get();if(!w)return;chipsEl.querySelectorAll("button").forEach(x=>x.setAttribute("aria-pressed",String(x===b)));gen(outEl,PR[k[0]](w),JSON.stringify(["meaning-v3",PROG.id,unit().id,PROVIDERS.map(p=>p.name+":"+(p.model||"auto")).join(","),k[0],w.en,w.vi,w.pos||"",w.ipa||""]))};chipsEl.appendChild(b)});
+  b.onclick=()=>{const w=get();if(!w)return;chipsEl.querySelectorAll("button").forEach(x=>x.setAttribute("aria-pressed",String(x===b)));if(k[0]==="ex2"){wordQuiz(outEl,w);return}gen(outEl,PR[k[0]](w),JSON.stringify(["meaning-v3",PROG.id,unit().id,PROVIDERS.map(p=>p.name+":"+(p.model||"auto")).join(","),k[0],w.en,w.vi,w.pos||"",w.ipa||""]))};chipsEl.appendChild(b)});
  const a=document.createElement("button");a.type="button";a.className="tool";a.dataset.sfx="tap";a.textContent="Hỏi AI về từ này";
  a.onclick=()=>{const w=get();if(!w)return;closeSheet();const t=document.querySelector('.tabs button[data-tab="ai"]');if(t)t.click();inp.value='Về từ "'+w.en+'" (nghĩa: '+(w.vi||'chưa có')+', loại từ: '+(w.pos||'chưa rõ')+'): ';grow();inp.focus()};chipsEl.appendChild(a)}
 
@@ -5465,7 +5563,7 @@ async function complete(prompt,opts={}){
    if(signal){abort=()=>ctrl.abort();signal.addEventListener("abort",abort,{once:true})}
    const model=await pickModel(pv);
    const resp=await fetch(pv.url,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+pv.key},signal:ctrl.signal,
-     body:JSON.stringify(Object.assign({model,stream:false,temperature:0.82,max_tokens:260,messages},pv.extra))});
+     body:JSON.stringify(Object.assign({model,stream:false,temperature:0.82,max_tokens:opts.maxTokens||260,messages},pv.extra))});
    if(!resp.ok){const e=new Error("AI trả về HTTP "+resp.status);e.status=resp.status;throw e}
    const result=await resp.json();let resultText=result?.choices?.[0]?.message?.content;
    if(Array.isArray(resultText))resultText=resultText.map(x=>x.text||"").join("");
@@ -5477,7 +5575,7 @@ async function complete(prompt,opts={}){
  }
  throw new Error("Không thể kết nối dịch vụ AI"+(lastErr&&lastErr.message?": "+lastErr.message:""));
 }
-window.VHAI={show:show,ask:ask,reset:reset,sheet:openSheet,complete:complete};
+window.VHAI={show:show,ask:ask,reset:reset,sheet:openSheet,complete:complete,syncWordQuizRegen};
 add("bot",HELLO);show();
 }catch(e){console.warn("ai-chat",e)}})();
 </script>
@@ -8423,6 +8521,62 @@ if(user&&(metadata(uid).dirty||metadata(uid).conflict))setTimeout(()=>syncNow(fa
 #list .wrow .wactions,#list .wrow.has-image .wactions{grid-area:actions;justify-self:end;max-width:100%;min-width:0}
 #list .wrow.has-image .wthumb{grid-area:thumb;align-self:start}
 @media(max-width:560px){#list .wrow{grid-template-areas:"main" "actions"}#list .wrow.has-image{grid-template-columns:54px minmax(0,1fr);grid-template-areas:"thumb main" "actions actions"}#list .wrow .wmain,#list .wrow.has-image .wmain{padding-right:34px}#list .wrow .wst,#list .wrow.has-image .wst{top:12px;right:12px}}
+</style>
+<style id="vh-ai-quiz-layout">
+/* Quiz AI: dùng typography câu dài, không dùng cỡ chữ flashcard.
+   :has() giới hạn toàn bộ thay đổi cho đúng câu hỏi AI đang hiển thị. */
+#panel-quiz #qRun:not([hidden]):has(.vh-ai-question){--f:clamp(14px,1.05vw + 4px,19px);--qw:900px;--gx:max(16px,calc((100% - var(--qw))/2 + 24px));--xh:0px}
+#qRun:has(.vh-ai-question) .qtop{padding:max(12px,env(safe-area-inset-top,0px)) clamp(14px,3vw,24px) 6px;gap:12px}
+#qRun:has(.vh-ai-question) #qProg{position:static;clip:auto;width:auto;height:auto;overflow:visible;font-size:.76em;white-space:nowrap;font-weight:800}
+#qRun:has(.vh-ai-question) #qType{padding:clamp(8px,2vh,20px) clamp(14px,3vw,24px) 0;font-size:1.25em;line-height:1.3}
+#qRun:has(.vh-ai-question) .qbody{display:flex;flex-direction:column;justify-content:flex-start;gap:clamp(12px,2.5vh,24px);padding:clamp(10px,2vh,20px) clamp(14px,3vw,24px) 24px;scrollbar-width:thin}
+#qRun:has(.vh-ai-question) #qCenter,#qRun:has(.vh-ai-question) #qAnswer{margin:0;min-width:0;width:100%;flex:none}
+#qRun .vh-ai-question{width:100%;min-width:0;text-align:left;padding:clamp(16px,2.6vw,28px);background:var(--grid);border:2px solid var(--line);border-radius:20px;display:flex;flex-direction:column;gap:10px}
+#qRun .vh-ai-instruction{font-size:.88em;font-weight:750;line-height:1.45;color:var(--muted);overflow-wrap:anywhere}
+#qRun .vh-ai-prompt{font-size:clamp(20px,2.1vw,32px);font-weight:800;line-height:1.43;letter-spacing:-.012em;white-space:pre-wrap;overflow-wrap:anywhere;text-wrap:pretty;color:var(--fg)}
+#qRun:has(.vh-ai-question) .opts{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+#qRun:has(.vh-ai-question) .opt{font-size:clamp(15px,1.15vw,19px);line-height:1.4;min-height:64px;padding:12px 14px;gap:12px;border-radius:16px;align-items:center;min-width:0}
+#qRun:has(.vh-ai-question) .opt b{display:grid;flex:none;width:30px;height:30px;border-radius:8px;font-size:.8em}
+#qRun:has(.vh-ai-question) .opt span{min-width:0;overflow-wrap:anywhere;text-align:left}
+#qRun:has(.vh-ai-question) .keys{margin-top:0;padding:4px 0 0}
+#qRun:has(.vh-ai-question) .qfoot{max-height:46%;overflow:auto;align-items:center;padding:12px var(--gx) max(14px,env(safe-area-inset-bottom,0px));gap:16px}
+#qRun:has(.vh-ai-question) .fb{font-size:.9em;line-height:1.45;overflow-wrap:anywhere}
+#qRun:has(.vh-ai-question) .fb p{margin:4px 0 0}
+#qRun:has(.vh-ai-question) .res{font-size:1.15em}
+#qRun:has(.vh-ai-question) #qNext{min-height:48px;min-width:10em}
+/* Mascot không được che câu hỏi, đáp án hoặc nút tiếp theo. */
+.shell:has(#qRun:not([hidden]) .vh-ai-question)~.pet{display:none!important}
+html.big #qRun .vh-ai-prompt{font-size:clamp(24px,2.6vw,40px)}
+html.big #qRun:has(.vh-ai-question) .opt{font-size:clamp(19px,1.45vw,24px)}
+@media(max-width:600px){
+ #qRun:has(.vh-ai-question) .opts{grid-template-columns:minmax(0,1fr);gap:9px}
+ #qRun:has(.vh-ai-question) .opt{min-height:52px;padding:10px 12px;border-radius:13px}
+ #qRun:has(.vh-ai-question) .qtop{gap:8px}
+ #qRun:has(.vh-ai-question) .qfoot{flex-direction:column;align-items:stretch;gap:8px;max-height:48%;padding-inline:14px}
+ #qRun:has(.vh-ai-question) #qNext{width:100%;min-height:44px}
+ #qRun .vh-ai-question{padding:14px;gap:6px;border-radius:16px}
+ #qRun:has(.vh-ai-question) .keys{display:none}
+}
+@media(min-width:601px) and (max-height:540px){
+ #panel-quiz #qRun:not([hidden]):has(.vh-ai-question){--qw:1100px}
+ #qRun:has(.vh-ai-question) .qbody{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.2fr);grid-template-rows:auto;align-content:start;align-items:start;gap:16px;padding-top:8px;padding-bottom:12px}
+ #qRun:has(.vh-ai-question) .opt{min-height:48px;padding:8px 10px}
+ #qRun .vh-ai-question{padding:14px}
+ #qRun .vh-ai-prompt{font-size:clamp(18px,2vw,23px)}
+ #qRun:has(.vh-ai-question) .keys{display:none}
+ #qRun:has(.vh-ai-question) .qfoot{max-height:45%;padding-block:8px}
+}
+</style>
+
+<style id="vh-ai-quiz-regenerate">
+#qRun .vh-ai-question-head{display:flex;align-items:center;justify-content:space-between;gap:10px;min-width:0}
+#qRun .vh-ai-question-head .vh-ai-instruction{flex:1;min-width:0}
+#qRun #qAiRegenerate{flex:none;display:inline-flex;align-items:center;justify-content:center;gap:7px;font-size:.83em;line-height:1.2;min-height:44px;padding:8px 12px;white-space:nowrap;border-radius:12px;background:var(--paper);color:var(--ink);border-color:var(--blue-edge);box-shadow:0 3px 0 var(--blue-edge)}
+#qRun #qAiRegenerate:disabled,#rAiRegenerate:disabled{opacity:.65;cursor:wait;box-shadow:none}
+@keyframes vhAiRegenSpin{to{transform:rotate(360deg)}}
+#qAiRegenerate[aria-busy="true"] svg{animation:vhAiRegenSpin 1.2s linear infinite}
+@media(max-width:380px){#qRun .vh-ai-question-head{gap:6px}#qRun #qAiRegenerate{padding:8px;font-size:.78em;gap:4px}}
+@media(prefers-reduced-motion:reduce){#qAiRegenerate[aria-busy="true"] svg{animation:none}}
 </style>
 </body>
 </html>
