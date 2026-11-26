@@ -5248,14 +5248,7 @@ VH.on("fav",()=>{try{if(!$("panel-list").hidden)deco()}catch(e){}});
 (function(){try{
 /* ===== AI Chat (Z.ai · GLM) ===== */
 /* Danh sách AI, thử lần lượt từ trên xuống: cái nào lỗi/không trả lời thì tự đổi sang cái kế tiếp. Muốn thêm/bớt thì sửa ở đây. */
-const PROVIDERS=[
- {name:"Key 1",url:"https://api.literouter.com/v1/chat/completions",key:"2318b601141e10b10abcb4e4998bff2705e3f42d30905eded7c08ee254c0b208",model:"deepseek-v4.1-flash-1017:free",extra:{}},
- {name:"Key 2",url:"https://api.literouter.com/v1/chat/completions",key:"1f325cebe3e799ec708266f65924b7d191a4abe02ffde0de7645b7bb6eeeaf81",model:"deepseek-v4.1-flash-1017:free",extra:{}},
- {name:"Key 3",url:"https://api.literouter.com/v1/chat/completions",key:"e66e49690936300bea2ef2ae0346e2eeb73764a99b26c7206465770934cd312d",model:"deepseek-v4.1-flash-1017:free",extra:{}},
- {name:"Key 4",url:"https://api.literouter.com/v1/chat/completions",key:"40160619c5ef01b1f8ea29fe955d4d315f447784b5ad87b7d36b640e3cac41eb",model:"deepseek-v4.1-flash-1017:free",extra:{}},
- {name:"Key 5",url:"https://api.literouter.com/v1/chat/completions",key:"f9122f87b4115ed232ebb5555c03d861e74a3c8b34ec46cca97db8ff327d071d",model:"deepseek-v4.1-flash-1017:free",extra:{}}
-];
-let cur=0;
+const PROVIDERS=[{name:"Nemotron 3.5 Super VL · NVIDIA",model:"nvidia/nemotron-3.5-super-vl-120b-a12b"}];
 const $=id=>document.getElementById(id);
 const log=$("aiLog"),inp=$("aiIn"),btn=$("aiSend"),msg=$("aiMsg"),sub=$("aiSub");
 const HELLO="Chào bạn! Mình là trợ lý AI của Voc Hub. Bạn có thể hỏi nghĩa, cách dùng, cách phát âm của từ vựng trong Unit đang chọn, hoặc nhờ mình đặt câu, ra bài tập và luyện hội thoại nhé.";
@@ -5288,94 +5281,38 @@ function sys(){return "Bạn là trợ lý học tiếng Anh thân thiện trong
 
 function grow(){inp.style.height="auto";inp.style.height=Math.min(inp.scrollHeight,128)+"px"}
 function setBusy(b){busy=b;inp.disabled=b;$("aiNew").disabled=b;btn.textContent=b?"Dừng":"Gửi";if(!b&&matchMedia("(hover:hover)").matches)inp.focus()}
-function errText(status,body){
- if(status===401||status===403)return "Khóa API không hợp lệ hoặc đã bị thu hồi.";
- if(status===429)return "Đã hết lượt dùng hoặc gửi quá nhanh. Đợi một lát rồi thử lại nhé.";
- if(status>=500)return "Máy chủ AI đang bận. Thử lại sau ít phút nhé.";
- return "Không gửi được tin nhắn"+(body?": "+body:".")}
-
 const DOTS='<span class="ai-dots" aria-label="Đang trả lời"><i></i><i></i><i></i></span>';
-const dl=j=>j&&j.choices&&j.choices[0]&&j.choices[0].delta&&j.choices[0].delta.content||"";
-const sse=(line,cb)=>{line=line.trim();if(line.indexOf("data:")!==0)return;const d=line.slice(5).trim();if(!d||d==="[DONE]")return;try{cb(JSON.parse(d))}catch(_){}};
-/* Giới hạn chi phí: tối đa 20 request/phút (cách nhau >= 3 giây), tính chung cho mọi chỗ dùng AI.
-   Quá giới hạn thì KHÔNG từ chối: giao diện vẫn hiện "đang trả lời", request chỉ được gửi thật khi tới lượt. */
-const GAP=3000;let nextAt=0;
-async function gate(alive){
- const now=Date.now(),t=Math.max(now,nextAt);nextAt=t+GAP;
- while(Date.now()<t){
-  if(alive&&!alive()){if(nextAt===t+GAP)nextAt=t;const e=new Error("đã hủy");e.cancel=true;throw e}
-  await new Promise(r=>setTimeout(r,Math.min(200,t-Date.now())));
- }
- if(alive&&!alive()){if(nextAt===t+GAP)nextAt=t;const e=new Error("đã hủy");e.cancel=true;throw e}
-}
-async function pickModel(pv){
- if(pv.model)return pv.model;if(pv._m)return pv._m;
- const r=await fetch(pv.url.replace(/\/chat\/completions$/,"/models"),{headers:{"Authorization":"Bearer "+pv.key}});
- if(!r.ok){const e=new Error("chưa có tên model và không lấy được danh sách model (HTTP "+r.status+")");e.status=r.status;throw e}
- const j=await r.json();const ids=((j&&j.data)||[]).map(m=>m.id).filter(Boolean);
- const pick=ids.find(x=>/free/i.test(x))||ids.find(x=>/flash|mini|lite|haiku|nano/i.test(x))||ids[0];
- if(!pick){const e=new Error("danh sách model trống");e.status=404;throw e}
- pv._m=pick;return pick}
-async function attempt(pv,bot,msgs,alive){
- await gate(alive);
- const controller=new AbortController();let cancelled=false;
- const timeout=setTimeout(()=>controller.abort(),26000);
- const watcher=setInterval(()=>{if(alive&&!alive()){cancelled=true;controller.abort()}},120);
- const report=v=>{if(alive&&!alive())return;try{bot.innerHTML=md(v);if(log)log.scrollTop=log.scrollHeight}catch(_){}};
+async function requestNvidia(messages,temperature,maxTokens,alive){
+ if(alive&&!alive())throw Error("Đã dừng chờ phản hồi.");
+ const controller=new AbortController();
+ const watch=setInterval(()=>{if(alive&&!alive())controller.abort()},150);
  try{
-  const model=await pickModel(pv);
-  if(alive&&!alive()){const e=new Error("đã hủy");e.cancel=true;throw e}
-  const res=await fetch(pv.url,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+pv.key},signal:controller.signal,
-    body:JSON.stringify(Object.assign({model,stream:true,messages:msgs,temperature:0.55},pv.extra))});
-  if(!res.ok){let message="";try{const j=await res.json();message=(j.error&&j.error.message)||""}catch(_){}const e=new Error(errText(res.status,message));e.status=res.status;throw e}
-  const ct=(res.headers.get("content-type")||"").toLowerCase();let acc="";
-  if(res.body&&res.body.getReader&&ct.includes("text/event-stream")){
-   const reader=res.body.getReader(),dec=new TextDecoder();let buf="";
-   for(;;){const {done,value}=await reader.read();if(done)break;buf+=dec.decode(value,{stream:true});let p;
-    while((p=buf.indexOf("\n"))>=0){const line=buf.slice(0,p).trim();buf=buf.slice(p+1);sse(line,j=>{const t=dl(j);if(t){acc+=t;report(acc)}})}
-   }
-   if(buf.trim())sse(buf,j=>{const t=dl(j);if(t){acc+=t;report(acc)}});
-  }else{
-   const raw=await res.text();let j=null;try{j=JSON.parse(raw)}catch(_){}
-   if(j){if(j.error)throw new Error(j.error.message||"Lỗi từ dịch vụ AI");acc=(j.choices&&j.choices[0]&&j.choices[0].message&&j.choices[0].message.content)||""}
-   else raw.split("\n").forEach(line=>sse(line,j=>{acc+=dl(j)}));
-   if(acc)report(acc)
-  }
-  if(!acc.trim())throw new Error("Dịch vụ AI trả về nội dung rỗng");return acc.trim();
- }catch(e){if(cancelled){e.cancel=true}if(e.name==="AbortError"&&!cancelled)throw new Error("Dịch vụ AI phản hồi quá lâu (26 giây)");throw e}
- finally{clearTimeout(timeout);clearInterval(watcher)}
+  const result=await window.VHAccounts.requestAi({messages,temperature,maxTokens},controller.signal);
+  if(result.error){const error=new Error(result.error);error.status=result.status;throw error}
+  if(typeof result.answer!=="string"||!result.answer.trim())throw Error("AI trả về nội dung rỗng.");
+  return result.answer.trim();
+ }finally{clearInterval(watch)}
 }
-const sleep=async ms=>{for(let t=0;t<ms&&!stopReq;t+=200)await new Promise(r=>setTimeout(r,200))};
+const AI_WAIT=DOTS+'<div class="ai-via" role="status">Đang chờ NVIDIA phản hồi…</div>';
 async function ask(text,visibleText){
  text=(text||"").trim();if(!text)return;if(busy){msg.textContent="AI đang trả lời. Hãy đợi hoặc bấm Dừng trước khi hỏi tiếp.";return}
  const nowUnit=PROG.id+"|"+unit().id;if(historyUnit!==null&&historyUnit!==nowUnit){hist=[];add("bot","Đã đổi Unit. Mình sẽ dùng ngữ cảnh của Unit hiện tại.")}historyUnit=nowUnit;
  msg.textContent="";add("me",visibleText||text);inp.value="";grow();
  hist.push({role:"user",content:text});hist=hist.slice(-12);
- const bot=add("bot","");bot.innerHTML=DOTS;
+ const bot=add("bot","");bot.innerHTML=AI_WAIT;
  setBusy(true);stopReq=false;
  try{
   if(navigator.onLine===false){hist.pop();bot.className="ai-msg err";bot.textContent="Không có mạng. Tính năng AI cần kết nối Internet.";return}
   const msgs=[{role:"system",content:sys()}].concat(hist);
-  let acc="",used=null,n=0,last="";const dead=new Set();
-  /* Lỗi tạm thời (mạng, quá tải, hết lượt, trả lời rỗng) thì tự thử lại đến khi được; bấm "Dừng" để thoát. Lỗi khóa/model sai thì bỏ AI đó. */
-  while(!acc&&!stopReq&&n<5){
-   const live=PROVIDERS.map((_,i)=>i).filter(i=>!dead.has(i));
-   if(!live.length)break;
-   const i=live.indexOf(cur)>=0?cur:live[0],pv=PROVIDERS[i];
-   try{
-    bot.className="ai-msg bot";bot.innerHTML=DOTS+(n?'<div class="ai-via">Đang thử lại lần '+n+(last?" · "+esc(last):"")+" …</div>":"");
-    acc=await attempt(pv,bot,msgs,()=>!stopReq);if(stopReq){acc="";break}cur=(i+1)%PROVIDERS.length;used=pv;break
-   }catch(e){
-    if(stopReq)break;
-    n++;last=pv.name+": "+((e&&e.message)||(e&&e.name)||"lỗi");console.warn("AI lỗi (lần "+n+"):",last,e);
-    if(e&&[400,401,403,404].indexOf(e.status)>=0)dead.add(i);
-    const lv=PROVIDERS.map((_,k)=>k).filter(k=>!dead.has(k));
-    if(lv.length)cur=lv[(lv.indexOf(i)+1)%lv.length];
-    if(lv.length)await sleep(Math.min(800*n,6000));
-   }
+  let acc;
+  try{
+   acc=await requestNvidia(msgs,0.55,640,()=>!stopReq);
+   if(stopReq)throw Error("Đã dừng.");
+  }catch(error){
+   hist.pop();bot.className="ai-msg err";bot.textContent=stopReq?"Đã dừng.":error.message;return
   }
-  if(!acc){hist.pop();bot.className="ai-msg err";bot.textContent=stopReq?"Đã dừng.":"Chưa kết nối được AI sau 5 lần thử. "+last+". Kiểm tra kết nối, hạn mức và cấu hình dịch vụ AI rồi thử lại.";return}
-  const v=document.createElement("div");v.className="ai-via";v.textContent="Trả lời bởi "+used.name+(used._m?" · "+used._m:"")+(n?" (sau "+n+" lần thử lại)":"");bot.appendChild(v);
+  bot.innerHTML=md(acc);
+  const v=document.createElement("div");v.className="ai-via";v.textContent="Trả lời bởi "+PROVIDERS[0].name;bot.appendChild(v);
   hist.push({role:"assistant",content:acc});hist=hist.slice(-12);
  }finally{stopReq=false;setBusy(false);log.scrollTop=log.scrollHeight}
 }
@@ -5401,30 +5338,26 @@ const PR={
  col:w=>"Nêu 5 cụm từ / collocation thường đi với từ: "+wi(w)+". Mỗi cụm kèm nghĩa và 1 câu ví dụ ngắn có dịch.",
  tip:w=>"Cho mình 2 mẹo ghi nhớ từ: "+wi(w)+" (liên tưởng âm thanh với tiếng Việt, hình ảnh, hoặc gốc từ nếu có). Ngắn, vui, dễ nhớ."
 };
-const CK="vhai:cache:v3";let cache={};try{cache=JSON.parse(localStorage.getItem(CK)||"{}")||{}}catch(e){}
+const CK="vhai:cache:v5";let cache={};try{cache=JSON.parse(localStorage.getItem(CK)||"{}")||{}}catch(e){}
 const cset=(k,v)=>{cache[k]=v;const ks=Object.keys(cache);if(ks.length>150)delete cache[ks[0]];try{localStorage.setItem(CK,JSON.stringify(cache))}catch(e){}};
-const wait=ms=>new Promise(r=>setTimeout(r,ms));
 function regenBtn(out,label){const d=document.createElement("div");const b=document.createElement("button");b.type="button";b.className="ai-regen";b.dataset.sfx="none";b.textContent=label;d.appendChild(b);out.appendChild(d)}
 function done(out,acc){out.className="ai-out";out.innerHTML=md(acc);regenBtn(out,"Tạo lại")}
 async function gen(out,prompt,key,force){
  const tok={};out._tok=tok;out._job={prompt:prompt,key:key};out.hidden=false;out.className="ai-out";
  if(key&&!force&&cache[key]){done(out,cache[key]);window.vhRevealResult(out);return}
- out.innerHTML=DOTS;window.vhRevealResult(out);
- const proxy={set innerHTML(v){if(out._tok===tok)out.innerHTML=v}};
+ out.innerHTML=AI_WAIT;window.vhRevealResult(out);
  const msgs=[{role:"system",content:SYSW+" Trình độ: "+PROG.name+". Unit hiện tại: "+unit().no+" "+unit().name+". Giữ nguyên nghĩa trong dữ liệu học liệu được cung cấp."},{role:"user",content:prompt}];
- let n=0,last="",acc="";const dead=new Set();
- while(out._tok===tok&&!acc&&n<5){
-  const live=PROVIDERS.map((_,i)=>i).filter(i=>!dead.has(i));if(!live.length)break;
-  const i=live.indexOf(cur)>=0?cur:live[0],pv=PROVIDERS[i];
-  try{acc=await attempt(pv,proxy,msgs,()=>out._tok===tok);cur=(i+1)%PROVIDERS.length}
-  catch(e){n++;last=pv.name+": "+((e&&e.message)||"lỗi");console.warn("AI lỗi:",last,e);
-   if(e&&[400,401,403,404].indexOf(e.status)>=0)dead.add(i);
-   if(out._tok===tok&&n<5){out.innerHTML=DOTS+'<div class="ai-via">Đang thử lại lần '+n+" …</div>";await wait(Math.min(800*n,4000))}}
+ try{
+  const answer=await requestNvidia(msgs,0.55,1000,()=>out._tok===tok);
+  if(out._tok!==tok)return;
+  if(key)cset(key,answer);
+  done(out,answer);
+ }catch(error){
+  if(out._tok!==tok)return;
+  out.className="ai-out err";out.textContent=error.message;regenBtn(out,"Thử lại");
  }
- if(out._tok!==tok)return;
- if(acc){if(key)cset(key,acc);done(out,acc)}
- else{out.className="ai-out err";out.innerHTML="";const m=document.createElement("div");m.textContent="Không gọi được AI. "+last;out.appendChild(m);regenBtn(out,"Thử lại")}
 }
+
 function wire(out){out.addEventListener("click",e=>{if(e.target.closest(".ai-regen")&&out._job)gen(out,out._job.prompt,out._job.key,true)})}
 function clearOut(out,chips){out._tok=null;out.hidden=true;out.innerHTML="";chips.querySelectorAll("button").forEach(x=>x.setAttribute("aria-pressed","false"))}
 function readWordQuiz(raw,w){
@@ -5443,7 +5376,7 @@ function readWordQuiz(raw,w){
   return {type:'aiword',w,prompt,choices:order.map(i=>choices[i]),answer:order.indexOf(row.answer),explanation:row.explanation.trim()};
  })
 }
-const wordQuizKey=w=>JSON.stringify(['word-quiz-v1',PROG.id,unit().id,w.en,w.vi,w.pos]);
+const wordQuizKey=w=>JSON.stringify(['word-quiz-nvidia-v2',PROG.id,unit().id,w.en,w.vi,w.pos]);
 const wordQuizPrompt=w=>'Tạo đúng 3 câu trắc nghiệm luyện từ '+JSON.stringify(wi(w))+' trong '+PROG.name+'. Đa dạng: chọn nghĩa trong ngữ cảnh, chọn câu dùng đúng, chọn cụm từ phù hợp. Mỗi câu chỉ có một đáp án đúng. Không để lộ đáp án trong câu hỏi, không ghi A/B/C/D trước lựa chọn. Trả về duy nhất mảng JSON gồm 3 đối tượng {prompt,choices,answer,explanation}. prompt là câu hỏi, choices gồm 4 chuỗi khác nhau, answer là chỉ số từ 0 đến 3, explanation là một câu giải thích tiếng Việt.';
 let wordRegenJob=null;
 function syncWordQuizRegen(){
@@ -5463,15 +5396,10 @@ async function regenerateWordQuiz(){
   const oldPrompts=new Map(previous.map(q=>[assessmentText(q.prompt),q.prompt]));
   if(cache[key]){try{readWordQuiz(cache[key],w).forEach(q=>oldPrompts.set(assessmentText(q.prompt),q.prompt))}catch{}}
   const prompt=wordQuizPrompt(w)+'\nĐây là lượt tạo lại. Tạo cả 3 câu hỏi mới, thay đổi tình huống, câu ví dụ và các phương án nhiễu. Không lặp lại các câu hỏi sau: '+JSON.stringify([...oldPrompts.values()]);
-  let fresh=null,raw='';
-  for(let i=0;i<2;i++){
-   if(!current())return;
-   raw=await window.VHAI.complete(prompt+(i?'\nLần trước trùng câu hoặc sai định dạng. Hãy tạo 3 câu thực sự khác.':''),{maxTokens:1800,signal:controller.signal});
-   if(!current())return;
-   try{const candidate=readWordQuiz(raw,w);if(candidate.every(q=>!oldPrompts.has(assessmentText(q.prompt)))){fresh=candidate;break}}catch{}
-  }
-  if(!fresh)throw new Error('AI chưa tạo được bộ câu hỏi khác hợp lệ');
+  const raw=await window.VHAI.complete(prompt,{maxTokens:1800,signal:controller.signal});
   if(!current()||_nxB)return;
+  const fresh=readWordQuiz(raw,w);
+  if(fresh.some(q=>oldPrompts.has(assessmentText(q.prompt))))throw Error('AI lặp lại câu hỏi của lượt trước.');
   cset(key,raw);startQuizRun(fresh);toast('Đã tạo 3 câu quiz AI mới!');
  }catch(e){if(current()&&!controller.signal.aborted)toast('Chưa tạo được quiz mới. Bài hiện tại vẫn được giữ; hãy thử lại.');}
  finally{clearInterval(watch);if(wordRegenJob===job){wordRegenJob=null;syncWordQuizRegen()}}
@@ -5481,7 +5409,7 @@ async function wordQuiz(out,w){
  const key=wordQuizKey(w),tok={};
  const origin=settings.tab,sourceUnit=unit().id;
  out._tok=tok;out._job=null;out.hidden=false;out.className='ai-out';
- out.textContent='Đang tạo 3 câu quiz…';window.vhRevealResult(out);
+ out.textContent='Đang chờ NVIDIA tạo 3 câu quiz…';window.vhRevealResult(out);
  const current=()=>out._tok===tok&&settings.tab===origin&&unit().id===sourceUnit;
  try{
   let questions;
@@ -5552,29 +5480,11 @@ async function complete(prompt,opts={}){
  if(navigator.onLine===false)throw new Error("Thiết bị đang ngoại tuyến");
  const signal=opts.signal||null;
  const messages=[{role:"system",content:"Bạn là giáo viên tiếng Anh THCS Việt Nam. Chỉ trả lời đúng định dạng mà người dùng yêu cầu, không thêm markdown khi yêu cầu JSON. Tạo câu tiếng Anh tự nhiên, ngữ pháp chính xác, phù hợp lứa tuổi. Nếu được yêu cầu dùng từ vựng thì giữ nguyên cách viết từ/cụm từ; không tự ý sửa danh sách từ vựng của ứng dụng."},{role:"user",content:String(prompt)}];
- let lastErr=null;
- for(let attemptNum=0;attemptNum<PROVIDERS.length;attemptNum++){
-  if(signal&&signal.aborted)throw new Error("Đã hủy tạo câu");
-  const i=(cur+attemptNum)%PROVIDERS.length,pv=PROVIDERS[i];
-  let ctrl=null,timer=null,abort=null;
-  try{
-   await gate(()=>!(signal&&signal.aborted));
-   ctrl=new AbortController();timer=setTimeout(()=>ctrl.abort(),18500);
-   if(signal){abort=()=>ctrl.abort();signal.addEventListener("abort",abort,{once:true})}
-   const model=await pickModel(pv);
-   const resp=await fetch(pv.url,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+pv.key},signal:ctrl.signal,
-     body:JSON.stringify(Object.assign({model,stream:false,temperature:0.82,max_tokens:opts.maxTokens||260,messages},pv.extra))});
-   if(!resp.ok){const e=new Error("AI trả về HTTP "+resp.status);e.status=resp.status;throw e}
-   const result=await resp.json();let resultText=result?.choices?.[0]?.message?.content;
-   if(Array.isArray(resultText))resultText=resultText.map(x=>x.text||"").join("");
-   if(typeof resultText!=="string"||!resultText.trim())throw new Error("AI chưa tạo được nội dung hợp lệ");
-   cur=(i+1)%PROVIDERS.length;return opts.returnDetails?{answer:resultText.trim(),provider:pv.name,model}:resultText.trim();
-  }catch(err){if(signal&&signal.aborted)throw new Error("Đã hủy tạo câu");lastErr=err;console.warn("Không tạo được câu từ AI:",pv.name,err&&err.message||err);
-   if(err&&[400,401,403,404].includes(err.status))continue;
-  }finally{if(timer)clearTimeout(timer);if(signal&&abort)signal.removeEventListener("abort",abort)}
- }
- throw new Error("Không thể kết nối dịch vụ AI"+(lastErr&&lastErr.message?": "+lastErr.message:""));
+ const answer=await requestNvidia(messages,0.82,opts.maxTokens||260,()=>!signal?.aborted);
+ const {name:provider,model}=PROVIDERS[0];
+ return opts.returnDetails?{answer,provider,model}:answer;
 }
+
 window.VHAI={show:show,ask:ask,reset:reset,sheet:openSheet,complete:complete,syncWordQuizRegen};
 add("bot",HELLO);show();
 }catch(e){console.warn("ai-chat",e)}})();
@@ -7457,7 +7367,51 @@ function ui(title,body){const old=by('vh18-dialog');if(old)old.remove();const el
 function note(root,message,error){const e=root.querySelector('#vh18-msg');if(!e)return;e.hidden=!message;e.classList.toggle('error',!!error);e.textContent=message||''}
 function getUrl(){return String((window.VH18_CONFIG&&window.VH18_CONFIG.backendUrl)||'').trim()}
 function validUrl(v){return /^https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec$/.test(v)}
-function api(action,data){if(!navigator.onLine)return Promise.reject(Error('Thiết bị đang mất mạng. Tiến độ vẫn giữ trên máy.'));if(window.google&&window.google.script&&window.google.script.run)return new Promise((resolve,reject)=>{try{window.google.script.run.withSuccessHandler(resolve).withFailureHandler(e=>reject(Error(e&&e.message||'Không kết nối được Apps Script.'))).goiUngDung({action,data})}catch(e){reject(e)}});const url=getUrl();if(!validUrl(url))return Promise.reject(Error('Chưa kết nối máy chủ tài khoản. Vui lòng liên hệ quản trị viên.'));let requestId;try{requestId=Array.from(crypto.getRandomValues(new Uint32Array(4))).join('-')}catch(_){return Promise.reject(Error('Trình duyệt chưa hỗ trợ kết nối an toàn.'))}return new Promise((resolve,reject)=>{const iframe=document.createElement('iframe');iframe.name='vh18bridge'+requestId;iframe.style.display='none';const form=document.createElement('form');form.method='post';form.action=url;form.target=iframe.name;form.style.display='none';const inp=document.createElement('input');inp.name='payload';inp.value=JSON.stringify({id:requestId,action,data,origin:location.origin});form.appendChild(inp);let timeout;function done(){clearTimeout(timeout);window.removeEventListener('message',listen);form.remove();iframe.remove()}function listen(e){if(!/^https:\/\/([a-z0-9-]+\.)*googleusercontent\.com$/.test(e.origin))return;const r=e.data;if(!r||r.vhRequest!==requestId)return;done();r.ok?resolve(r.data):reject(Error(r.error||'Không xử lý được yêu cầu.'))}window.addEventListener('message',listen);timeout=setTimeout(()=>{done();reject(Error('Không kết nối được. Kiểm tra Internet, quyền và đường dẫn Web app.'))},35000);document.body.append(iframe,form);form.submit()})}
+function api(action,data,signal){
+ if(!navigator.onLine)return Promise.reject(Error('Thiết bị đang mất mạng. Tiến độ vẫn giữ trên máy.'));
+ const ai=action==='ai_complete';
+ const waitMessage='Không kết nối được. Kiểm tra Internet, quyền và đường dẫn Web app.';
+ if(signal?.aborted)return Promise.reject(Error('Đã dừng chờ phản hồi.'));
+ if(window.google?.script?.run)return new Promise((resolve,reject)=>{
+  const timer=ai?null:setTimeout(()=>finish(reject,Error(waitMessage)),35000);
+  function cancel(){finish(reject,Error('Đã dừng chờ phản hồi.'))}
+  function finish(callback,value){clearTimeout(timer);signal?.removeEventListener('abort',cancel);callback(value)}
+  signal?.addEventListener('abort',cancel,{once:true});
+  try{
+   window.google.script.run.withSuccessHandler(value=>finish(resolve,value))
+    .withFailureHandler(e=>finish(reject,Error(e?.message||'Không kết nối được Apps Script.'))).goiUngDung({action,data});
+  }catch(error){finish(reject,error)}
+ });
+ const url=getUrl();
+ if(!validUrl(url))return Promise.reject(Error('Chưa kết nối máy chủ tài khoản. Vui lòng liên hệ quản trị viên.'));
+ let requestId;
+ try{requestId=Array.from(crypto.getRandomValues(new Uint32Array(4))).join('-')}
+ catch{return Promise.reject(Error('Trình duyệt chưa hỗ trợ kết nối an toàn.'))}
+ return new Promise((resolve,reject)=>{
+  const iframe=document.createElement('iframe');
+  iframe.name='vh18bridge'+requestId;iframe.style.display='none';
+  const form=document.createElement('form');
+  form.method='post';form.action=url;form.target=iframe.name;form.style.display='none';
+  const input=document.createElement('input');
+  input.name='payload';input.value=JSON.stringify({id:requestId,action,data,origin:location.origin});
+  form.appendChild(input);
+  const timer=ai?null:setTimeout(()=>finish(reject,Error(waitMessage)),35000);
+  function finish(callback,value){
+   clearTimeout(timer);window.removeEventListener('message',listen);signal?.removeEventListener('abort',cancel);
+   form.remove();iframe.remove();callback(value);
+  }
+  function cancel(){finish(reject,Error('Đã dừng chờ phản hồi.'))}
+  function listen(event){
+   if(!/^https:\/\/([a-z0-9-]+\.)*googleusercontent\.com$/.test(event.origin))return;
+   const result=event.data;
+   if(result?.vhRequest!==requestId)return;
+   if(result.ok)finish(resolve,result.data);
+   else finish(reject,Error(result.error||'Không xử lý được yêu cầu.'));
+  }
+  window.addEventListener('message',listen);signal?.addEventListener('abort',cancel,{once:true});
+  try{document.body.append(iframe,form);form.submit()}catch(error){finish(reject,error)}
+ });
+}
 /* Chia sẻ học liệu giữa thiết bị; ghi theo phiên bản và giữ bản dự phòng cục bộ. */
 let curriculumBusy=false,curriculumTimer=null,curriculumIncoming=null;
 const curriculumRevKey='vh18:curriculum:revision:'+PROG.id,curriculumBackupKey='vh18:curriculum:backup:'+PROG.id,curriculumOutKey='vh18:curriculum:pending:'+uid+':'+PROG.id;
@@ -8237,7 +8191,7 @@ async function openTest(a){
  else showAssignedQuiz(session);
  const arena=by(mode==='game'?'gArena':'qRun');if(arena&&!state.submitted){arena.querySelectorAll('.vh-answer-save-status').forEach(el=>el.remove());answerStatus=document.createElement('div');answerStatus.className='vh-answer-save-status';answerStatus.setAttribute('role','status');answerStatus.setAttribute('aria-live','polite');const top=arena.querySelector(mode==='game'?'.gh':'.qtop');if(top)top.after(answerStatus);else arena.prepend(answerStatus);updateAnswerStatus()}
 }
-window.VHAccounts={getUser:()=>user,getAssignments:()=>pendingTasks,getTasksState:()=>({loaded:tasksLoaded,loading:tasksLoading,error:tasksError}),refreshTasks,openAccount,openClass,renderClass,openRanking:openWeeklyRanking,openTest,requestSync,syncNow,isApplyingProgress:()=>writing};
+window.VHAccounts={requestAi:(data,signal)=>api('ai_complete',data,signal),getUser:()=>user,getAssignments:()=>pendingTasks,getTasksState:()=>({loaded:tasksLoaded,loading:tasksLoading,error:tasksError}),refreshTasks,openAccount,openClass,renderClass,openRanking:openWeeklyRanking,openTest,requestSync,syncNow,isApplyingProgress:()=>writing};
 const mainAccount=document.querySelector('.side .account-entry');
 if(user) mainAccount.querySelector('span').textContent='Tài khoản';
 document.addEventListener('click',event=>{
