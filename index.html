@@ -3205,7 +3205,15 @@ const Study = (() => {
  const localDay=()=>new Date().toLocaleDateString('sv-SE');
  const context=w=>(Object.hasOwn(contexts,String(w.en).trim().toLowerCase())?contexts[String(w.en).trim().toLowerCase()]:'') || (/^[a-z'-]+(?: [a-z'-]+)+$/i.test(w.en)?w.en.replace(/\S+$/,'___'):'');
  const dims=t=>({spell:'fill',scramble:'fill',listen:'listen2vi',img:'vi2en'})[t]||t;
- const due=(r,now)=>r?.last?points.find(d=>{const gap=Math.floor((now-r.last)/DAY);return gap>=d&&gap<=d+(d<7?0:1)})||0:0;
+ // Đo theo thời điểm bắt đầu học từ, mỗi mốc được ghi tối đa một lần.
+ // Lượt đến muộn chỉ tính cho mốc gần nhất đã đạt, không cộng vào các mốc đã bỏ lỡ.
+ const due=(r,now)=>{
+  if(!r?.last)return 0;
+  const anchor=Number(r.retentionStart)||Number(r.last);
+  const elapsed=(now-anchor)/DAY;
+  const completed=r.retentionChecked||Object.fromEntries(points.filter(day=>r.ret?.[day]?.[1]>0).map(day=>[day,true]));
+  return points.filter(day=>elapsed>=day&&!completed[day]).at(-1)||0;
+ };
  function risk(r,now){if(!r?.last)return .5;const days=Math.max(0,(now-r.last)/DAY);return 1-(r.streak+2)/(r.streak+3)*Math.pow(.5,days/(1+2*Math.min(12,r.streak)))}
  function mode(w,r,basic){if(basic&&(!r||r.streak<2))return 'en2vi';
   const candidates=['vi2en','en2vi','fill','listen2vi','context'].filter(t=>(t!=='context'||context(w))&&(t!=='listen2vi'||'speechSynthesis' in window));
@@ -3214,7 +3222,7 @@ const Study = (() => {
  function begin(){
   const s=state(),now=Date.now(),words=uniqueWords(unit().words.filter(w=>w.en?.trim()&&w.vi?.trim()));
   if(!words.length)return toast('Unit chưa có từ đủ nghĩa để luyện.');
-  const rank=w=>{const r=s.words[knownIdentity(w)];const target=points.find(d=>d>(r?.reward||0))||30;return due(r,now)===target?3:r?.reward&&now-r.last<target*DAY?-1:r?risk(r,now):.55};
+  const rank=w=>{const r=s.words[knownIdentity(w)];return due(r,now)?3:r?risk(r,now):.55};
   const remaining=s.goal-(s.day===localDay()?s.done:0);
   const count=Math.min(s.basic?5:s.goal,remaining>0?remaining:s.goal);
   const batch=shuffle(words).sort((a,b)=>rank(b)-rank(a)).slice(0,count);
@@ -3224,7 +3232,7 @@ const Study = (() => {
   if(!plan)return q;
   const {s,now}=plan,id=knownIdentity(q.w),r=s.words[id],probe=due(r,now);
   q.probe=probe;q.adaptive=true;q.omitted=plan.omitted;plan.omitted=0;
-  q.reason=probe?'Kiểm tra lại sau '+probe+' ngày kể từ lượt Quiz gần nhất.':!r?'Lần đầu đo kỹ năng với từ này.':r.pair?'Lần trước em đã chọn một từ khác.':'Ôn theo khoảng cách giữa các lần học và kết quả trước.';
+  q.reason=probe?'Kiểm tra mốc '+probe+' ngày kể từ khi bắt đầu theo dõi từ này.':!r?'Lần đầu đo kỹ năng với từ này.':r.pair?'Lần trước em đã chọn một từ khác.':'Ôn theo khoảng cách giữa các lần học và kết quả trước.';
   q.type=probe?'vi2en':r?.pair?'vi2en':mode(q.w,r,s.basic);
   const others=assessmentDistractors([...(r?.pair?pool.filter(w=>knownIdentity(w)===r.pair):[]),...shuffle(pool)],q.w,s.basic?1:3);
   if(assessmentAmbiguousWords(pool).has(assessmentText(q.w.en))&&q.type==='en2vi')q.type='vi2en';
@@ -3235,9 +3243,12 @@ const Study = (() => {
  function record(q,ok){
   const t=dims(q.type);if(!labels[t]||!q.w||q.measured)return;q.measured=true;
   const s=state(),now=Date.now(),id=knownIdentity(q.w),r=s.words[id]||={skills:{},streak:0,last:0,ret:{},reward:0};
+  if(!r.retentionStart)r.retentionStart=Number(r.last)||now;
+  r.retentionChecked=r.retentionChecked||Object.fromEntries(points.filter(day=>r.ret?.[day]?.[1]>0).map(day=>[day,true]));
   const d=due(r,now);
   if(d&&q.probe===d&&t==='vi2en'){
    const v=r.ret[d]||=[0,0];v[0]+=+ok;v[1]++;
+   points.filter(day=>day<=d).forEach(day=>{r.retentionChecked[day]=true});
    if(ok&&!r.reward)r.reward=d;else if(ok)r.reward=Math.max(d,r.reward);
   }
   const sk=r.skills[t]||=[0,0];sk[0]+=+ok;sk[1]++;r.last=now;r.streak=ok?r.streak+1:0;
@@ -3284,7 +3295,7 @@ function studyReport(people,dialog){
   csv.push([day,...counts]);
   return `<tr><th>${day} ngày</th><td>${rate(counts)}</td></tr>`;
  }).join('');
- const d=dialog('Tiến độ học từ của lớp',`<section class="vh-card"><h3>Điểm yếu · ${esc(PROG.name)}</h3><p>${data.length}/${people.length} học sinh có báo cáo của chương trình này.</p>${Object.entries(Study.labels).map(([k,v])=>`<div class="vh-item"><b>${v}</b> ${rate(sum(data,'skills',k))}</div>`).join('')}<p>Từ sai nhiều trong các báo cáo gần nhất: ${[...weak].sort((a,b)=>b[1]-a[1]).slice(0,8).map(([w,n])=>esc(w)+' ('+n+')').join(', ')||'chưa có'}</p><h3>Nhóm luyện tập gợi ý</h3>${[...groups].map(([k,v])=>'<p><b>'+esc(k)+'</b> · '+v.map(esc).join(', ')+'</p>').join('')}</section><section class="vh-card"><h3>Khả năng ghi nhớ</h3><p>Tỷ lệ trả lời đúng khi học sinh gặp lại từ sau lần luyện trước. Mỗi mốc hiển thị số câu đúng trên tổng số câu đã trả lời.</p><table><thead><tr><th>Khoảng cách ôn</th><th>Kết quả của lớp</th></tr></thead><tbody>${rows}</tbody></table><button class="btn small" data-export>Tải báo cáo ghi nhớ (.csv)</button></section>`);
+ const d=dialog('Tiến độ học từ của lớp',`<section class="vh-card"><h3>Điểm yếu · ${esc(PROG.name)}</h3><p>${data.length}/${people.length} học sinh có báo cáo của chương trình này.</p>${Object.entries(Study.labels).map(([k,v])=>`<div class="vh-item"><b>${v}</b> ${rate(sum(data,'skills',k))}</div>`).join('')}<p>Từ sai nhiều trong các báo cáo gần nhất: ${[...weak].sort((a,b)=>b[1]-a[1]).slice(0,8).map(([w,n])=>esc(w)+' ('+n+')').join(', ')||'chưa có'}</p><h3>Nhóm luyện tập gợi ý</h3>${[...groups].map(([k,v])=>'<p><b>'+esc(k)+'</b> · '+v.map(esc).join(', ')+'</p>').join('')}</section><section class="vh-card"><h3>Khả năng ghi nhớ</h3><p>Tỷ lệ đúng khi kiểm tra từ sau ít nhất 1, 7, 14 hoặc 30 ngày kể từ lúc bắt đầu theo dõi. Lượt đến muộn tính vào mốc gần nhất; học sinh vẫn có thể ôn trong thời gian đó.</p><table><thead><tr><th>Khoảng cách ôn</th><th>Kết quả của lớp</th></tr></thead><tbody>${rows}</tbody></table><button class="btn small" data-export>Tải báo cáo ghi nhớ (.csv)</button></section>`);
  d.classList.add('vh-study-sheet');
  d.querySelector('[data-export]').onclick=()=>{const url=URL.createObjectURL(new Blob([csv.map(row=>row.join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'}));const link=document.createElement('a');link.href=url;link.download='voc-hub-retention.csv';link.click();setTimeout(()=>URL.revokeObjectURL(url),2000)}
 }
@@ -5710,8 +5721,8 @@ function recognize(local,long,session,onStatus){
  return new Promise(resolve=>{
   if(session.cancelled)return resolve({alts:[],err:"cancelled"});
   const r=new SR();let finalAlts=[],interimAlts=[],err="",done=false;
-  let timer=null,guard=null,afterSpeech=null;
-  const cleanup=()=>{clearTimeout(timer);clearTimeout(guard);clearTimeout(afterSpeech);
+  let timer=null,guard=null,afterSpeech=null,startGuard=null;
+  const cleanup=()=>{clearTimeout(timer);clearTimeout(guard);clearTimeout(afterSpeech);clearTimeout(startGuard);
    if(ENG.active===r)ENG.active=null;
    if(session.finishRecognize===requestedFinish)session.finishRecognize=null;
   };
@@ -5724,7 +5735,7 @@ function recognize(local,long,session,onStatus){
    if(done)return;
    try{r.stop()}catch(e){}
    // Sự kiện onend không được bảo đảm trên mọi phiên bản Chrome/Edge.
-   clearTimeout(guard);guard=setTimeout(finish,1150);
+   clearTimeout(guard);guard=setTimeout(finish,5000);
   };
   const requestedFinish=(immediate=false)=>{
    if(done)return;
@@ -5734,16 +5745,20 @@ function recognize(local,long,session,onStatus){
   session.finishRecognize=requestedFinish;
   r.lang=lang();r.continuous=false;r.interimResults=true;r.maxAlternatives=6;
   if(local){try{r.processLocally=true}catch(e){}}
-  r.onstart=()=>{onStatus&&onStatus("Micro đã sẵn sàng. Hãy đọc to, rõ ràng.")};
+  r.onstart=()=>{
+   clearTimeout(startGuard);
+   onStatus&&onStatus("Micro đã sẵn sàng. Hãy đọc to, rõ ràng.");
+   timer=setTimeout(()=>{if(done)return;onStatus&&onStatus("Đang hoàn tất lượt nói...");stopRecognizer()},long?12000:7000);
+  };
   r.onaudiostart=()=>{onStatus&&onStatus("Đang nghe. Hãy đọc từ hoặc câu được hiển thị.")};
   r.onspeechstart=()=>{onStatus&&onStatus("Đã nghe tiếng nói, đang nhận dạng...")};
   r.onspeechend=()=>{
    onStatus&&onStatus("Đang hoàn tất nhận dạng...");
-   clearTimeout(afterSpeech);afterSpeech=setTimeout(stopRecognizer,650);
+   clearTimeout(afterSpeech);clearTimeout(timer);afterSpeech=setTimeout(stopRecognizer,6000);
   };
   r.onresult=e=>{
    const finals=[],interims=[];
-   for(let j=e.resultIndex;j<e.results.length;j++){
+   for(let j=0;j<e.results.length;j++){
     const x=e.results[j],a=[];
     for(let i=0;i<x.length;i++)if(String(x[i].transcript||"").trim())a.push({t:x[i].transcript,c:x[i].confidence});
     if(x.isFinal)finals.push(...a);else interims.push(...a);
@@ -5758,10 +5773,17 @@ function recognize(local,long,session,onStatus){
    // onerror đôi khi không có onend; không được giữ trạng thái "Đang chấm".
    clearTimeout(afterSpeech);afterSpeech=setTimeout(finish,300);
   };
-  r.onend=finish;
+  r.onend=()=>{
+   // Một số phiên Chrome kết thúc ngay sau âm thanh, trong khi kết quả cuối
+   // vẫn đang được dịch vụ nhận dạng trả về.
+   if(!finalAlts.length&&!err&&!session.cancelled){
+    clearTimeout(afterSpeech);
+    afterSpeech=setTimeout(finish,1500);
+   }else finish();
+  };
   ENG.active=r;
   try{r.start()}catch(e){err=(e&&e.name==="NotAllowedError")?"not-allowed":"start";finish();return}
-  timer=setTimeout(()=>{if(done)return;onStatus&&onStatus("Đang hoàn tất lượt nói...");stopRecognizer()},long?12000:7000);
+  startGuard=setTimeout(()=>{if(done)return;err="start";try{r.abort()}catch(e){}finish()},12000);
  });
 }
 /* Thu âm kèm hiển thị âm lượng thật; bảo đảm giải phóng tài nguyên khi kết thúc,
